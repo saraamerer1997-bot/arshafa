@@ -811,7 +811,13 @@ async function printAll(list){
     const html = formHtml(w, p ? `<img src="${esc(p)}" alt="">` : 'صورة', logoUrl || logo);
     return `<div style="${i < list.length - 1 ? 'page-break-after:always' : ''}">${html}</div>`;
   }).join('');
-  await Promise.race([waitImgs(pa), new Promise(r => setTimeout(r, 10000))]);
+  // انتظار تحميل كل الصور قبل الطباعة (عدد كبير من الصور يحتاج وقت)
+  const imgs = $$('img', pa); let done = 0;
+  const pending = imgs.filter(i => !i.complete).map(i => new Promise(r => {
+    const f = () => { done++; if(done % 25 === 0) toast(`جاري تحميل الصور ${done}/${imgs.length}`); r(); };
+    i.onload = f; i.onerror = f;
+  }));
+  await Promise.race([Promise.all(pending), new Promise(r => setTimeout(r, 180000))]);
   window.print();
 }
 
