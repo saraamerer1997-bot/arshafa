@@ -245,7 +245,7 @@ const CONFIG = {
   WARN_DAYS: 30            // كم يوم قبل الانتهاء يصير التنبيه أصفر
 };
 const BUCKET = 'archive';
-const APP_VERSION = 12;  // يتغير مع كل تحديث، ويبين بالإعدادات حتى تتأكدين إن الجهاز أخذ النسخة الجديدة
+const APP_VERSION = 13;  // يتغير مع كل تحديث، ويبين بالإعدادات حتى تتأكدين إن الجهاز أخذ النسخة الجديدة
 const IS_RECOVERY = /type=recovery/.test(location.hash);
 const CONFIGURED = !CONFIG.SUPABASE_URL.includes('PUT_') && !CONFIG.SUPABASE_ANON_KEY.includes('PUT_');
 const sb = CONFIGURED ? supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY) : null;
@@ -790,7 +790,7 @@ function formHtml(w, photo, logo){
       ${row('الاسم', w.full_name)}${row('اللقب', w.laqab)}${row('رقم البطاقة الوطنية', w.national_id)}${row('عنوان السكن', w.address)}
       ${row('التحصيل الدراسي', w.education)}${row('العنوان الوظيفي', w.job_title)}
       ${row('القسم', w.department)}${row('تاريخ الميلاد', fmtDate(w.birth_date))}${row('الجنسية', w.nationality)}
-    </div><div class="pf-photo">${photo ? `<img src="${esc(photo)}" alt="">` : 'صورة'}</div></div>
+    </div><div class="pf-photo">${photo || 'صورة'}</div></div>
     <div class="pf-notes"><b>الملاحظات :</b><div>${esc(w.notes || '')}</div></div>
     <div class="pf-foot"><span>تاريخ الطباعة: ${fmtDate(todayStr())}</span></div></div>`;
 }
