@@ -232,8 +232,6 @@ main{max-width:860px;margin:0 auto;padding:16px 16px calc(var(--nav-h) + 32px + 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 /* =====================================================================
    1) الإعدادات — ضعي هنا رابط مشروع Supabase ومفتاح anon (العام فقط)
@@ -245,7 +243,7 @@ const CONFIG = {
   WARN_DAYS: 30            // كم يوم قبل الانتهاء يصير التنبيه أصفر
 };
 const BUCKET = 'archive';
-const APP_VERSION = 13;  // يتغير مع كل تحديث، ويبين بالإعدادات حتى تتأكدين إن الجهاز أخذ النسخة الجديدة
+const APP_VERSION = 9;  // يتغير مع كل تحديث، ويبين بالإعدادات حتى تتأكدين إن الجهاز أخذ النسخة الجديدة
 const IS_RECOVERY = /type=recovery/.test(location.hash);
 const CONFIGURED = !CONFIG.SUPABASE_URL.includes('PUT_') && !CONFIG.SUPABASE_ANON_KEY.includes('PUT_');
 const sb = CONFIGURED ? supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY) : null;
@@ -621,7 +619,7 @@ function pageWorkers(){
   const app = $('#app');
   const wps = [...new Set(S.workers.map(w => w.department).filter(Boolean))].sort();
   const opt = (v, l, cur) => `<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(l)}</option>`;
-  app.innerHTML = `<div class="page-head"><h1>العمال</h1>${isEditor()?'<button class="btn sm" id="pAll"><i class="ti ti-printer"></i> طباعة الكل</button> <button class="btn sm" id="pdfAll"><i class="ti ti-file-type-pdf"></i> حفظ الكل PDF</button> <button class="btn sm" id="xL"><i class="ti ti-file-spreadsheet"></i> تصدير Excel</button>':''}</div>
+  app.innerHTML = `<div class="page-head"><h1>العمال</h1>${isEditor()?'<button class="btn sm" id="xL"><i class="ti ti-file-spreadsheet"></i> تصدير Excel</button>':''}</div>
   <div class="filters"><label class="search"><i class="ti ti-search"></i><input id="q" type="search" placeholder="ابحثي بالاسم أو الهاتف${isEditor()?' أو رقم المستمسك':''}" value="${esc(S.f.q)}" aria-label="بحث"></label>
   <div class="chips">
     <select id="fs" aria-label="الحالة">${opt('','كل الحالات',S.f.status)}${opt('active','فعّال',S.f.status)}${opt('leave','مجاز',S.f.status)}${opt('left','غادر',S.f.status)}</select>
@@ -635,8 +633,6 @@ function pageWorkers(){
   $('#fw').onchange = e => { S.f.wp = e.target.value; renderWorkerList(); };
   if($('#ff')) $('#ff').onchange = e => { S.f.flag = e.target.value; renderWorkerList(); };
   if($('#xL')) $('#xL').onclick = () => exportWorkers(S.lastList);
-  if($('#pAll')) $('#pAll').onclick = e => busy(e.currentTarget, () => printAll(S.lastList || S.workers));
-  if($('#pdfAll')) $('#pdfAll').onclick = e => busy(e.currentTarget, () => savePdf(S.lastList || S.workers, 'أرشيف العمال ' + todayStr() + '.pdf'));
   renderWorkerList();
 }
 function renderWorkerList(){
@@ -708,7 +704,7 @@ async function pageWorker(id){
     ${w.notes ? `<p class="muted small" style="margin:14px 0 0;font-weight:600">الملاحظات</p><p style="margin:2px 0 0;white-space:pre-wrap">${esc(w.notes)}</p>` : ''}
     <div class="profile-actions">
       ${isEditor()?`<a class="btn" href="#/worker/${w.id}/edit"><i class="ti ti-edit"></i> تعديل</a>`:''}
-      ${isEditor()?`<button class="btn" id="prW"><i class="ti ti-printer"></i> طباعة الاستمارة</button> <button class="btn" id="pdfW"><i class="ti ti-file-type-pdf"></i> حفظ PDF</button>`:''}
+      ${isEditor()?`<button class="btn" id="prW"><i class="ti ti-printer"></i> طباعة الاستمارة</button>`:''}
       ${isEditor()?`<button class="btn" id="dlAll"><i class="ti ti-download"></i> تحميل كل المستمسكات</button>`:''}
     </div>
   </div>
@@ -744,7 +740,6 @@ async function pageWorker(id){
   });
   $('#dlAll').onclick = e => busy(e.currentTarget, () => downloadAll(w, docs));
   $('#prW').onclick = e => busy(e.currentTarget, () => printForm(w));
-  $('#pdfW').onclick = e => busy(e.currentTarget, () => savePdf([w], safeName(w.full_name) + '.pdf'));
   if($('#delW')) $('#delW').onclick = async e => {
     const btn = e.currentTarget;
     if(!await confirmBox(`تحذفين ${w.full_name} وكل صوره ومستمسكاته نهائياً؟ ما يرجع بعدين.`, 'حذف نهائي')) return;
@@ -780,98 +775,22 @@ async function logoHtml(){
   return `<img src="${DEFAULT_LOGO}" alt="">`;
 }
 const waitImgs = el => Promise.all($$('img', el).map(i => i.complete ? null : new Promise(r => { i.onload = i.onerror = r; })));
-// قالب استمارة واحد لعامل واحد (يستعمله الطباعة الفردية والجماعية)
-function formHtml(w, photo, logo){
+async function printForm(w){
+  const pa = $('#printArea');
+  const photo = w.photo_path ? (await signedUrls([w.photo_path]))[w.photo_path] : null;
   const row = (l, v) => `<div class="pf-row"><b>${l} :</b><span>${esc(v || '')}</span></div>`;
-  return `<div class="pf">
-    <div class="pf-head"><div class="pf-ar">${esc(orgAr())}</div><div class="pf-logo">${logo}</div><div class="pf-en">${esc(orgEn())}</div></div>
+  pa.innerHTML = `<div class="pf">
+    <div class="pf-head"><div class="pf-ar">${esc(orgAr())}</div><div class="pf-logo">${await logoHtml()}</div><div class="pf-en">${esc(orgEn())}</div></div>
     <hr class="pf-rule">
     <div class="pf-body"><div class="pf-fields">
       ${row('الاسم', w.full_name)}${row('اللقب', w.laqab)}${row('رقم البطاقة الوطنية', w.national_id)}${row('عنوان السكن', w.address)}
       ${row('التحصيل الدراسي', w.education)}${row('العنوان الوظيفي', w.job_title)}
       ${row('القسم', w.department)}${row('تاريخ الميلاد', fmtDate(w.birth_date))}${row('الجنسية', w.nationality)}
-    </div><div class="pf-photo">${photo || 'صورة'}</div></div>
+    </div><div class="pf-photo">${photo ? `<img src="${esc(photo)}" alt="">` : 'صورة'}</div></div>
     <div class="pf-notes"><b>الملاحظات :</b><div>${esc(w.notes || '')}</div></div>
     <div class="pf-foot"><span>تاريخ الطباعة: ${fmtDate(todayStr())}</span></div></div>`;
-}
-async function printForm(w){
-  const pa = $('#printArea');
-  const photo = w.photo_path ? await blobUrl(w.photo_path) : null;
-  pa.innerHTML = formHtml(w, photo ? `<img src="${photo}" alt="">` : 'صورة', await logoHtml());
   await Promise.race([waitImgs(pa), new Promise(r => setTimeout(r, 6000))]);
   window.print();
-}
-// نحمّل الصورة ونحوّلها لصورة JPEG صغيرة مدمجة بالصفحة، حتى تطلع بأي جهاز بالطباعة و PDF
-async function blobUrl(path){
-  const { data, error } = await sb.storage.from(BUCKET).download(path);
-  if(error || !data){ toast('ما انحمّلت صورة: ' + (error?.message || 'ملف فاضي'), 'bad'); return null; }
-  try{
-    const bmp = await createImageBitmap(data);
-    const s = Math.min(1, 480 / Math.max(bmp.width, bmp.height));
-    const c = document.createElement('canvas');
-    c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
-    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-    return c.toDataURL('image/jpeg', 0.85);
-  }catch(e){ toast('ما قدرت أجهز الصورة: ' + e.message, 'bad'); return null; }
-}
-// طباعة كل العمال المعروضين بأمر واحد (كل استمارة بصفحة)
-// يبني كل الاستمارات داخل منطقة الطباعة ويرجع العنصر
-async function buildPages(list){
-  const uniq = [...new Set(list.map(w => w.photo_path).filter(Boolean))];
-  const blobs = {}; let k = 0, got = 0;
-  await Promise.all(Array.from({ length: 6 }, async () => {
-    while(k < uniq.length){
-      const p = uniq[k++];
-      blobs[p] = await blobUrl(p); got++;
-      if(got % 25 === 0) toast(`جاري تحميل الصور ${got}/${uniq.length}`);
-    }
-  }));
-  const logoUrl = await logoHtml();
-  const pa = $('#printArea');
-  pa.innerHTML = list.map((w, i) => {
-    const p = w.photo_path && blobs[w.photo_path];
-    const html = formHtml(w, p ? `<img src="${p}" alt="">` : 'صورة', logoUrl);
-    return `<div style="${i < list.length - 1 ? 'page-break-after:always' : ''}">${html}</div>`;
-  }).join('');
-  return pa;
-}
-// طباعة كل العمال المعروضين بأمر واحد (كل استمارة بصفحة)
-async function printAll(list){
-  if(!list.length){ toast('ماكو عمال للطباعة', 'bad'); return; }
-  toast(`جاري تجهيز ${list.length} استمارة...`);
-  const pa = await buildPages(list);
-  // انتظار تحميل كل الصور قبل الطباعة (عدد كبير من الصور يحتاج وقت)
-  const imgs = $$('img', pa); let done = 0;
-  const pending = imgs.filter(i => !i.complete).map(i => new Promise(r => {
-    const f = () => { done++; if(done % 25 === 0) toast(`جاري تحميل الصور ${done}/${imgs.length}`); r(); };
-    i.onload = f; i.onerror = f;
-  }));
-  await Promise.race([Promise.all(pending), new Promise(r => setTimeout(r, 180000))]);
-  window.print();
-}
-
-// حفظ الاستمارات كملف PDF مباشرة (صفحة لكل عامل)
-async function savePdf(list, fname){
-  if(!window.jspdf || !window.html2canvas){ toast('مكتبة PDF ما انحمّلت، تأكدي من النت وأعيدي تحميل الصفحة', 'bad'); return; }
-  if(!list.length){ toast('ماكو عمال للحفظ', 'bad'); return; }
-  const pa = await buildPages(list);
-  pa.style.cssText = 'display:block;position:fixed;left:0;top:0;width:210mm;background:#fff;z-index:-1';
-  await Promise.race([Promise.all($$('img', pa).map(i => i.complete ? null : new Promise(r => { i.onload = i.onerror = r; }))), new Promise(r => setTimeout(r, 60000))]);
-  const forms = $$('.pf', pa);
-  const pdf = new window.jspdf.jsPDF({ unit:'mm', format:'a4' });
-  try{
-    for(let i = 0; i < forms.length; i++){
-      toast(`جاري تجهيز الصفحة ${i + 1}/${forms.length}`);
-      const c = await window.html2canvas(forms[i], { scale: 2, backgroundColor: '#ffffff' });
-      if(i) pdf.addPage();
-      const h = 210 * c.height / c.width;
-      pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, Math.min(h, 297));
-    }
-    pdf.save(fname);
-    toast('تم حفظ ملف PDF');
-  } finally {
-    pa.style.cssText = ''; pa.innerHTML = '';
-  }
 }
 
 // تحميل كل ملفات العامل بملف مضغوط واحد
